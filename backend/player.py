@@ -24,7 +24,7 @@ class AudioPlayer:
 
         # Decode file using miniaudio (decodes MP3, WAV, FLAC, OGG, etc.)
         decoded = miniaudio.decode_file(file_path)
-        samples = np.frombuffer(decoded.samples, dtype=np.float32)
+        samples = np.frombuffer(decoded.samples, dtype=np.int16).astype(np.float32) / 32768.0
         
         with self.lock:
             self.samplerate = decoded.sample_rate

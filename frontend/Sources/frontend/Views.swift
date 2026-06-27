@@ -664,11 +664,9 @@ struct SchedulesView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 20)
             
-            Divider()
-                .opacity(0.3)
-                
-            // Schedules List
-            List {
+            // Schedules List Card
+            VStack(alignment: .leading, spacing: 12) {
+                // Table Header
                 HStack(spacing: 0) {
                     Text("Playlist")
                         .font(.system(size: 11, weight: .bold))
@@ -691,89 +689,101 @@ struct SchedulesView: View {
                         .frame(width: 60, alignment: .center)
                     
                     Spacer()
+                    
                     Text("Actions")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.secondary)
                         .frame(width: 120, alignment: .trailing)
                 }
                 .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .padding(.top, 4)
                 
-                if client.schedules.isEmpty {
-                    Text("No schedules created yet.")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .padding(24)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                } else {
-                    ForEach(client.schedules) { sched in
-                        HStack(spacing: 0) {
-                            Text(sched.playlistName)
-                                .font(.system(size: 13, weight: .bold))
-                                .frame(width: 150, alignment: .leading)
-                            
-                            Text(formatWeekdays(sched.daysOfWeek))
+                Divider()
+                    .opacity(0.3)
+                
+                ScrollView {
+                    VStack(spacing: 8) {
+                        if client.schedules.isEmpty {
+                            Text("No schedules created yet.")
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
-                                .frame(minWidth: 200, alignment: .leading)
-                            
-                            Text(sched.timeOfDay)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.accentColor)
-                                .frame(width: 80, alignment: .center)
-                            
-                            // Active Switch (Toggle)
-                            Toggle("", isOn: Binding(
-                                get: { sched.isActive == 1 },
-                                set: { client.toggleSchedule(scheduleId: sched.id, isActive: $0) }
-                            ))
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .frame(width: 60, alignment: .center)
-                            
-                            Spacer()
-                            
-                            // Actions: Test Now / Delete
-                            HStack(spacing: 12) {
-                                Button(action: {
-                                    client.testSchedule(scheduleId: sched.id)
-                                }) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "play.fill")
-                                        Text("Test")
-                                    }
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(Color.green)
-                                    .cornerRadius(6)
-                                }
-                                .buttonStyle(.plain)
-                                .help("Test Playback Immediately")
-                                
-                                Button(action: {
-                                    client.deleteSchedule(scheduleId: sched.id)
-                                }) {
-                                    Image(systemName: "trash")
+                                .padding(24)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        } else {
+                            ForEach(client.schedules) { sched in
+                                HStack(spacing: 0) {
+                                    Text(sched.playlistName)
+                                        .font(.system(size: 13, weight: .bold))
+                                        .frame(width: 150, alignment: .leading)
+                                    
+                                    Text(formatWeekdays(sched.daysOfWeek))
+                                        .font(.system(size: 13))
                                         .foregroundColor(.secondary)
+                                        .frame(minWidth: 200, alignment: .leading)
+                                    
+                                    Text(sched.timeOfDay)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(.accentColor)
+                                        .frame(width: 80, alignment: .center)
+                                    
+                                    // Active Switch (Toggle)
+                                    Toggle("", isOn: Binding(
+                                        get: { sched.isActive == 1 },
+                                        set: { client.toggleSchedule(scheduleId: sched.id, isActive: $0) }
+                                    ))
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                                    .frame(width: 60, alignment: .center)
+                                    
+                                    Spacer()
+                                    
+                                    // Actions: Test Now / Delete
+                                    HStack(spacing: 12) {
+                                        Button(action: {
+                                            client.testSchedule(scheduleId: sched.id)
+                                        }) {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "play.fill")
+                                                Text("Test")
+                                            }
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 4)
+                                            .background(Color.green)
+                                            .cornerRadius(6)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Test Playback Immediately")
+                                        
+                                        Button(action: {
+                                            client.deleteSchedule(scheduleId: sched.id)
+                                        }) {
+                                            Image(systemName: "trash")
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Delete Schedule")
+                                    }
+                                    .frame(width: 120, alignment: .trailing)
                                 }
-                                .buttonStyle(.plain)
-                                .help("Delete Schedule")
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(NSColor.controlBackgroundColor).opacity(0.3))
+                                )
                             }
-                            .frame(width: 120, alignment: .trailing)
                         }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(NSColor.controlBackgroundColor).opacity(0.3))
-                        )
                     }
+                    .padding(.top, 2)
                 }
             }
-            .listStyle(.plain)
-            .padding(.horizontal, 12)
+            .padding(18)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(12)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
         }
         .onAppear {
             client.fetchSchedules()
@@ -944,6 +954,7 @@ struct DownloaderView: View {
                             Text("Video + Audio").tag(false)
                         }
                         .pickerStyle(.segmented)
+                        .labelsHidden()
                         .frame(width: 240)
                         .disabled(client.isDownloading)
                         Spacer()
@@ -965,6 +976,7 @@ struct DownloaderView: View {
                                 Text("MP4").tag("mp4")
                             }
                         }
+                        .labelsHidden()
                         .frame(width: 140)
                         .disabled(client.isDownloading)
                         Spacer()
@@ -984,6 +996,7 @@ struct DownloaderView: View {
                                 Text("Low (128 kbps)").tag("low")
                             }
                             .pickerStyle(.segmented)
+                            .labelsHidden()
                             .frame(width: 320)
                             .disabled(client.isDownloading)
                         } else {
@@ -993,6 +1006,7 @@ struct DownloaderView: View {
                                         Text(resolutionLabel(res)).tag(String(res))
                                     }
                                 }
+                                .labelsHidden()
                                 .frame(width: 240)
                                 .disabled(client.isDownloading)
                             } else {
@@ -1002,6 +1016,7 @@ struct DownloaderView: View {
                                     Text("Low (480p)").tag("low")
                                 }
                                 .pickerStyle(.segmented)
+                                .labelsHidden()
                                 .frame(width: 320)
                                 .disabled(client.isDownloading)
                             }
@@ -1047,6 +1062,7 @@ struct DownloaderView: View {
                                 Text(playlist.name).tag(playlist.id as Int)
                             }
                         }
+                        .labelsHidden()
                         .frame(width: 240)
                         .disabled(client.isDownloading)
                         Spacer()
