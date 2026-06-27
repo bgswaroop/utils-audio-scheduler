@@ -49,6 +49,13 @@ class VolumeSet(BaseModel):
 class DeviceSet(BaseModel):
     device_id: int
 
+class ActiveDevicesSet(BaseModel):
+    active_device_ids: list[int]
+
+class DeviceVolumeSet(BaseModel):
+    device_id: int
+    volume: float
+
 class SeekSet(BaseModel):
     progress: float
 
@@ -84,25 +91,30 @@ def list_devices():
         raise HTTPException(status_code=500, detail=f"Failed to query audio devices: {e}")
     return devices
 
+@app.get("/settings/devices/active")
+def get_active_devices():
+    return {"active_device_ids": list(playback_manager.active_devices.keys())}
+
+@app.post("/settings/devices/active")
+def set_active_devices(payload: ActiveDevicesSet):
+    playback_manager.set_active_devices(payload.active_device_ids)
+    return {"status": "ok", "active_device_ids": list(playback_manager.active_devices.keys())}
+
+@app.post("/settings/devices/volume")
+def set_device_volume(payload: DeviceVolumeSet):
+    playback_manager.set_device_volume(payload.device_id, payload.volume)
+    return {"status": "ok", "device_id": payload.device_id, "volume": payload.volume}
+
+# Backwards compatible endpoints
 @app.get("/settings/device")
 def get_selected_device():
-    device_id = db.get_setting("selected_device_id")
-    return {"device_id": int(device_id) if device_id is not None else None}
+    # Return the first active device index, or -1 if default
+    ids = list(playback_manager.active_devices.keys())
+    return {"device_id": ids[0] if ids else -1}
 
 @app.post("/settings/device")
 def set_selected_device(payload: DeviceSet):
-    # Verify device exists
-    try:
-        devices = sd.query_devices()
-        if payload.device_id < 0 or payload.device_id >= len(devices):
-            raise HTTPException(status_code=400, detail="Invalid device ID")
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=f"Error checking device ID: {e}")
-    
-    db.set_setting("selected_device_id", str(payload.device_id))
-    playback_manager.set_device_id(payload.device_id)
+    playback_manager.set_active_devices([payload.device_id])
     return {"status": "ok", "device_id": payload.device_id}
 
 # 2. Playlists

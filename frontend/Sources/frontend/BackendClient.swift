@@ -44,6 +44,7 @@ struct PlaybackStatus: Codable {
     let progress: Double
     let volume: Double
     let deviceId: Int?
+    let activeDevices: [String: Double]? // Maps device ID (as string) to its volume
 }
 
 class BackendClient: ObservableObject {
@@ -124,6 +125,42 @@ class BackendClient: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let body = ["device_id": deviceId]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { [weak self] _, _, error in
+            if error == nil {
+                DispatchQueue.main.async {
+                    self?.fetchStatus()
+                }
+            }
+        }.resume()
+    }
+    
+    func setActiveDevices(deviceIds: [Int]) {
+        guard let url = URL(string: "\(baseURL)/settings/devices/active") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = ["active_device_ids": deviceIds]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { [weak self] _, _, error in
+            if error == nil {
+                DispatchQueue.main.async {
+                    self?.fetchStatus()
+                }
+            }
+        }.resume()
+    }
+    
+    func setDeviceVolume(deviceId: Int, volume: Double) {
+        guard let url = URL(string: "\(baseURL)/settings/devices/volume") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = ["device_id": deviceId, "volume": volume]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
         URLSession.shared.dataTask(with: request) { [weak self] _, _, error in

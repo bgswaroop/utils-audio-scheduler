@@ -1294,108 +1294,200 @@ struct ThumbnailView: View {
 }
 
 // MARK: - Settings View
+// MARK: - Settings View
 struct SettingsView: View {
     @StateObject private var client = BackendClient.shared
-    @State private var selectedDeviceIndex: Int = -1
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Text("Settings")
-                .font(.system(size: 24, weight: .bold))
-            
-            // Audio Core Routing settings
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 8) {
-                    Image(systemName: "speaker.wave.2.bubble")
-                        .font(.system(size: 16))
-                        .foregroundColor(.accentColor)
-                    Text("Audio Output Device Control")
-                        .font(.system(size: 14, weight: .bold))
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Settings")
+                    .font(.system(size: 24, weight: .bold))
                 
-                Text("Select the hardware device target (e.g. Multi-Output Device) to route music. System alert and notification sound tracks will continue to use the macOS default main speaker.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                
-                if client.devices.isEmpty {
-                    Text("No output devices listed or scanner failing.")
-                        .foregroundColor(.red)
-                } else {
-                    Picker("Target CoreAudio Output", selection: $selectedDeviceIndex) {
-                        Text("Default System Audio Device").tag(-1)
-                        ForEach(client.devices) { device in
-                            Text("\(device.name) (\(device.maxOutputChannels) ch)").tag(device.id as Int)
-                        }
+                // Audio Multi-Device Routing & Preamp Boost settings
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "speaker.wave.2.bubble")
+                            .font(.system(size: 16))
+                            .foregroundColor(.accentColor)
+                        Text("Multi-Device Audio Control")
+                            .font(.system(size: 14, weight: .bold))
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 400)
-                    .onChange(of: selectedDeviceIndex) { newIndex in
-                        client.setDevice(deviceId: newIndex)
-                    }
-                }
-            }
-            .padding(18)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(12)
-            
-            // Engine status & diagnostics
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Diagnostics & Engine State")
-                    .font(.system(size: 14, weight: .bold))
-                
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(client.isConnected ? Color.green : Color.red)
-                        .frame(width: 10, height: 10)
-                    Text(client.isConnected ? "FastAPI Local REST Engine Running" : "FastAPI Backend Offline")
-                        .font(.system(size: 13, weight: .medium))
                     
-                    if !client.isConnected {
-                        Button("Re-connect") {
-                            client.fetchStatus()
+                    Text("Enable one or more hardware devices simultaneously to play audio. Adjust individual sliders up to 200% (+6dB) to act as a digital preamp boost for quieter remote speakers (e.g., Echo-549). Safety soft-clipping is applied automatically.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                    
+                    Divider()
+                        .opacity(0.3)
+                    
+                    VStack(spacing: 12) {
+                        // 1. Default System Audio Device row
+                        deviceRow(id: -1, name: "Default System Audio Device", channels: 2)
+                        
+                        // 2. Hardware Devices
+                        if client.devices.isEmpty {
+                            HStack {
+                                Spacer()
+                                Text("No hardware output devices listed or scanner failing.")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .padding(.vertical, 8)
+                                Spacer()
+                            }
+                        } else {
+                            ForEach(client.devices) { device in
+                                deviceRow(id: device.id, name: device.name, channels: device.maxOutputChannels)
+                            }
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                     }
                 }
+                .padding(18)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                .cornerRadius(12)
                 
-                if let status = client.status {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Current Playlist: \(status.playlistName ?? "None")")
-                        Text("Song Playing: \(status.currentTrack?.title ?? "Idle")")
-                        Text("Current Volume Setting: \(Int(status.volume * 100))%")
-                        Text("Selected CoreAudio Index: \(status.deviceId == nil ? "Default System (-1)" : String(status.deviceId!))")
+                // Engine status & diagnostics
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Diagnostics & Engine State")
+                        .font(.system(size: 14, weight: .bold))
+                    
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(client.isConnected ? Color.green : Color.red)
+                            .frame(width: 10, height: 10)
+                        Text(client.isConnected ? "FastAPI Local REST Engine Running" : "FastAPI Backend Offline")
+                            .font(.system(size: 13, weight: .medium))
+                        
+                        if !client.isConnected {
+                            Button("Re-connect") {
+                                client.fetchStatus()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
                     }
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
+                    
+                    if let status = client.status {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Current Playlist: \(status.playlistName ?? "None")")
+                            Text("Song Playing: \(status.currentTrack?.title ?? "Idle")")
+                            Text("Global Volume Setting: \(Int(status.volume * 100))%")
+                            
+                            if let activeDevs = status.activeDevices, !activeDevs.isEmpty {
+                                Text("Active Broadcast Targets: " + activeDevs.map { k, v in
+                                    let idNum = Int(k) ?? -1
+                                    let devName = idNum == -1 ? "Default" : (client.devices.first(where: { $0.id == idNum })?.name ?? "ID \(k)")
+                                    return "\(devName) (\(Int(v * 100))%)"
+                                }.joined(separator: ", "))
+                            } else {
+                                Text("Active Broadcast Targets: None")
+                            }
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
+                    }
                 }
+                .padding(18)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                .cornerRadius(12)
+                
+                Spacer()
             }
-            .padding(18)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(12)
-            
-            Spacer()
+            .padding(24)
         }
-        .padding(24)
         .onAppear {
             client.fetchDevices()
             client.fetchStatus()
+        }
+    }
+    
+    @ViewBuilder
+    private func deviceRow(id: Int, name: String, channels: Int) -> some View {
+        let activeDevicesMap = client.status?.activeDevices ?? [:]
+        let isDeviceActive = activeDevicesMap[String(id)] != nil
+        let deviceVol = activeDevicesMap[String(id)] ?? 1.0
+        
+        HStack(spacing: 16) {
+            Toggle("", isOn: Binding(
+                get: { isDeviceActive },
+                set: { newValue in
+                    var currentActiveIds = activeDevicesMap.keys.compactMap { Int($0) }
+                    if newValue {
+                        if !currentActiveIds.contains(id) {
+                            currentActiveIds.append(id)
+                        }
+                    } else {
+                        currentActiveIds.removeAll { $0 == id }
+                    }
+                    client.setActiveDevices(deviceIds: currentActiveIds)
+                }
+            ))
+            .toggleStyle(.checkbox)
+            .labelsHidden()
             
-            // Set local initial picker state
-            if let targetId = client.status?.deviceId {
-                selectedDeviceIndex = targetId
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(isDeviceActive ? .primary : .secondary)
+                Text("\(channels) output channels")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.8))
+            }
+            .frame(width: 250, alignment: .leading)
+            
+            Spacer()
+            
+            if isDeviceActive {
+                HStack(spacing: 8) {
+                    Image(systemName: deviceVol <= 0.0 ? "speaker.slash.fill" : (deviceVol > 1.0 ? "speaker.wave.3.fill" : "speaker.wave.2.fill"))
+                        .foregroundColor(deviceVol > 1.0 ? .orange : .secondary)
+                        .frame(width: 20)
+                    
+                    Slider(value: Binding(
+                        get: { deviceVol },
+                        set: { val in
+                            client.setDeviceVolume(deviceId: id, volume: val)
+                        }
+                    ), in: 0.0...2.0)
+                    .labelsHidden()
+                    .frame(width: 160)
+                    
+                    Text("\(Int(deviceVol * 100))%")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .frame(width: 45, alignment: .trailing)
+                    
+                    if deviceVol > 1.0 {
+                        Text("Boost")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.orange)
+                            )
+                    } else {
+                        // Spacer of equal width to preserve layout alignment
+                        Color.clear
+                            .frame(width: 42, height: 16)
+                    }
+                }
             } else {
-                selectedDeviceIndex = -1
+                Text("Inactive")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.5))
+                    .frame(width: 295, alignment: .trailing)
             }
         }
-        .onChange(of: client.status?.deviceId) { newId in
-            if let newId = newId {
-                selectedDeviceIndex = newId
-            } else {
-                selectedDeviceIndex = -1
-            }
-        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isDeviceActive ? Color.accentColor.opacity(0.06) : Color.clear)
+        )
     }
 }
 
