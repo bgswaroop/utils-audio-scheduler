@@ -68,6 +68,8 @@ struct MainView: View {
                         PlaylistsView()
                     case "schedules":
                         SchedulesView()
+                    case "downloader":
+                        DownloaderView()
                     case "settings":
                         SettingsView()
                     default:
@@ -121,6 +123,9 @@ struct SidebarView: View {
                 SidebarItem(title: "Schedules", icon: "calendar.badge.clock", isSelected: selectedTab == "schedules") {
                     selectedTab = "schedules"
                     BackendClient.shared.fetchSchedules()
+                }
+                SidebarItem(title: "Downloader", icon: "arrow.down.to.line.compact", isSelected: selectedTab == "downloader") {
+                    selectedTab = "downloader"
                 }
                 SidebarItem(title: "Settings", icon: "gearshape", isSelected: selectedTab == "settings") {
                     selectedTab = "settings"
@@ -353,11 +358,6 @@ struct PlaylistDetailView: View {
     let playlist: Playlist
     @StateObject private var client = BackendClient.shared
     
-    @State private var showingDownloadSheet = false
-    @State private var youtubeUrl = ""
-    @State private var audioOnly = true
-    @State private var formatType = "mp3"
-    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header Info Card
@@ -404,21 +404,6 @@ struct PlaylistDetailView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "plus")
                                 Text("Add Music File")
-                            }
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.primary.opacity(0.08))
-                            .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        // YouTube Download Button
-                        Button(action: { showingDownloadSheet = true }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.down.to.line.compact")
-                                Text("Download YouTube")
                             }
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.primary)
@@ -521,94 +506,6 @@ struct PlaylistDetailView: View {
                 }
                 .listStyle(.plain)
             }
-        }
-        .sheet(isPresented: $showingDownloadSheet) {
-            VStack(spacing: 20) {
-                HStack {
-                    Image(systemName: "play.rectangle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.red)
-                    Text("YouTube Downloader")
-                        .font(.system(size: 18, weight: .bold))
-                }
-                .padding(.top, 8)
-                
-                Text("Enter a YouTube video or playlist URL. The file will be downloaded, converted, and automatically added to this playlist!")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 320)
-                
-                TextField("YouTube URL", text: $youtubeUrl)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 340)
-                    .disabled(client.isDownloading)
-                
-                Picker("Media Mode", selection: $audioOnly) {
-                    Text("Audio Only").tag(true)
-                    Text("Video + Audio").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 340)
-                .disabled(client.isDownloading)
-                
-                Picker("Output Format", selection: $formatType) {
-                    if audioOnly {
-                        Text("MP3").tag("mp3")
-                        Text("M4A").tag("m4a")
-                        Text("WAV").tag("wav")
-                    } else {
-                        Text("MP4").tag("mp4")
-                    }
-                }
-                .frame(width: 340)
-                .disabled(client.isDownloading)
-                
-                if client.isDownloading {
-                    VStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Downloading and converting...")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                } else if let err = client.downloadError {
-                    Text(err)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .frame(width: 340)
-                }
-                
-                HStack(spacing: 12) {
-                    Button("Close") {
-                        showingDownloadSheet = false
-                        youtubeUrl = ""
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(client.isDownloading)
-                    
-                    Button("Download") {
-                        if !youtubeUrl.trimmingCharacters(in: .whitespaces).isEmpty {
-                            client.downloadYoutube(url: youtubeUrl, audioOnly: audioOnly, formatType: formatType, playlistId: playlist.id) { success in
-                                if success {
-                                    showingDownloadSheet = false
-                                    youtubeUrl = ""
-                                }
-                            }
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(client.isDownloading || youtubeUrl.isEmpty)
-                }
-            }
-            .padding(24)
-            .frame(width: 380)
-        }
-        .onChange(of: audioOnly) { newVal in
-            formatType = newVal ? "mp3" : "mp4"
         }
         .onAppear {
             client.fetchTracks(playlistId: playlist.id)
@@ -895,6 +792,309 @@ struct SchedulesView: View {
         // Reset selections
         selectedDays = []
         selectedPlaylistId = -1
+    }
+}
+
+// MARK: - Downloader View
+struct DownloaderView: View {
+    @StateObject private var client = BackendClient.shared
+    
+    @State private var youtubeUrl = ""
+    @State private var audioOnly = true
+    @State private var formatType = "mp3"
+    @State private var selectedQuality = "medium"
+    @State private var downloadDirectory = (NSHomeDirectory() as NSString).appendingPathComponent("Downloads/utils-audio-scheduler")
+    @State private var targetPlaylistId: Int = -1 // -1 means none
+    
+    @State private var metadataTitle = ""
+    @State private var metadataDetails = ""
+    @State private var isFetchingMetadata = false
+    @State private var showSuccessBanner = false
+    @State private var lastDownloadedTitle = ""
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                // Header Title
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YouTube Downloader")
+                        .font(.system(size: 28, weight: .bold))
+                    Text("Download individual tracks or playlists as high-quality audio or video files.")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                
+                // Form Card
+                VStack(alignment: .leading, spacing: 20) {
+                    // URL input & fetch button
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("YouTube URL")
+                            .font(.system(size: 13, weight: .semibold))
+                        HStack(spacing: 12) {
+                            TextField("Paste video or playlist URL...", text: $youtubeUrl)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 13))
+                                .disabled(client.isDownloading)
+                            
+                            Button(action: fetchMetadata) {
+                                HStack(spacing: 6) {
+                                    if isFetchingMetadata {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Image(systemName: "magnifyingglass")
+                                    }
+                                    Text("Analyze")
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.primary.opacity(0.08))
+                                .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(youtubeUrl.isEmpty || client.isDownloading || isFetchingMetadata)
+                        }
+                    }
+                    
+                    // Metadata Info Card (if fetched successfully)
+                    if !metadataTitle.isEmpty {
+                        HStack(spacing: 12) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.accentColor)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(metadataTitle)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .lineLimit(1)
+                                Text(metadataDetails)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(Color.accentColor.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                    
+                    Divider().opacity(0.3)
+                    
+                    // Format and Mode selectors
+                    HStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Download Type")
+                                .font(.system(size: 13, weight: .semibold))
+                            Picker("", selection: $audioOnly) {
+                                Text("Audio Only").tag(true)
+                                Text("Video + Audio").tag(false)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 200)
+                            .disabled(client.isDownloading)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Format")
+                                .font(.system(size: 13, weight: .semibold))
+                            Picker("", selection: $formatType) {
+                                if audioOnly {
+                                    Text("MP3").tag("mp3")
+                                    Text("M4A").tag("m4a")
+                                    Text("WAV").tag("wav")
+                                } else {
+                                    Text("MP4").tag("mp4")
+                                }
+                            }
+                            .frame(width: 120)
+                            .disabled(client.isDownloading)
+                        }
+                    }
+                    
+                    // Quality Selector based on selection
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Download Quality")
+                            .font(.system(size: 13, weight: .semibold))
+                        Picker("", selection: $selectedQuality) {
+                            if audioOnly {
+                                Text("High (320 kbps)").tag("high")
+                                Text("Medium (192 kbps)").tag("medium")
+                                Text("Low (128 kbps)").tag("low")
+                            } else {
+                                Text("High (1080p)").tag("high")
+                                Text("Medium (720p)").tag("medium")
+                                Text("Low (480p)").tag("low")
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 344)
+                        .disabled(client.isDownloading)
+                    }
+                    
+                    Divider().opacity(0.3)
+                    
+                    // Save Destination Path Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Save To Local Directory")
+                            .font(.system(size: 13, weight: .semibold))
+                        HStack(spacing: 12) {
+                            Text(downloadDirectory)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.primary.opacity(0.04))
+                                .cornerRadius(6)
+                            
+                            Button("Choose Location...") {
+                                selectDestinationDirectory()
+                            }
+                            .disabled(client.isDownloading)
+                        }
+                    }
+                    
+                    // Import Options (optional addition to playlist)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Add to Playlist (Optional)")
+                            .font(.system(size: 13, weight: .semibold))
+                        Picker("", selection: $targetPlaylistId) {
+                            Text("No Playlist (Save to Folder Only)").tag(-1)
+                            ForEach(client.playlists) { playlist in
+                                Text(playlist.name).tag(playlist.id as Int)
+                            }
+                        }
+                        .frame(width: 344)
+                        .disabled(client.isDownloading)
+                    }
+                    
+                    Divider().opacity(0.3)
+                    
+                    // Actions (Download status and trigger)
+                    HStack {
+                        if client.isDownloading {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Downloading and processing YouTube media...")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                Text("This may take a moment depending on length and network speed.")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                        } else if showSuccessBanner {
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Successfully downloaded: \(lastDownloadedTitle)")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                        } else if let err = client.downloadError {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.red)
+                                Text(err)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: startDownload) {
+                            HStack {
+                                Image(systemName: "arrow.down.to.line.compact")
+                                Text("Start Download")
+                            }
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(youtubeUrl.isEmpty || client.isDownloading ? Color.gray : Color.accentColor)
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(youtubeUrl.isEmpty || client.isDownloading)
+                    }
+                }
+                .padding(24)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(NSColor.windowBackgroundColor).opacity(0.4))
+                )
+                .padding(.horizontal, 24)
+            }
+        }
+        .onChange(of: audioOnly) { newVal in
+            formatType = newVal ? "mp3" : "mp4"
+        }
+    }
+    
+    private func fetchMetadata() {
+        guard !youtubeUrl.isEmpty else { return }
+        isFetchingMetadata = true
+        metadataTitle = ""
+        metadataDetails = ""
+        
+        client.fetchYoutubeInfo(url: youtubeUrl) { info in
+            DispatchQueue.main.async {
+                isFetchingMetadata = false
+                if let info = info {
+                    metadataTitle = info.title
+                    if info.is_playlist {
+                        metadataDetails = "Playlist containing \(info.entries_count) entries"
+                    } else {
+                        let mins = Int(info.duration) / 60
+                        let secs = Int(info.duration) % 60
+                        metadataDetails = "Single Video • Duration \(mins)m \(secs)s"
+                    }
+                } else {
+                    metadataTitle = "Format details fetched"
+                    metadataDetails = "Analysis done"
+                }
+            }
+        }
+    }
+    
+    private func selectDestinationDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Select Download Directory"
+        panel.prompt = "Choose"
+        
+        if panel.runModal() == .OK {
+            if let url = panel.url {
+                self.downloadDirectory = url.path
+            }
+        }
+    }
+    
+    private func startDownload() {
+        guard !youtubeUrl.isEmpty else { return }
+        showSuccessBanner = false
+        
+        let targetId: Int? = targetPlaylistId == -1 ? nil : targetPlaylistId
+        
+        client.downloadYoutube(
+            url: youtubeUrl,
+            audioOnly: audioOnly,
+            formatType: formatType,
+            quality: selectedQuality,
+            destinationDir: downloadDirectory,
+            playlistId: targetId
+        ) { success in
+            if success {
+                lastDownloadedTitle = metadataTitle.isEmpty ? "YouTube Download" : metadataTitle
+                showSuccessBanner = true
+                youtubeUrl = ""
+                metadataTitle = ""
+                metadataDetails = ""
+            }
+        }
     }
 }
 

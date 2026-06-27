@@ -396,7 +396,42 @@ class BackendClient: ObservableObject {
         URLSession.shared.dataTask(with: request).resume()
     }
     
-    func downloadYoutube(url: String, audioOnly: Bool, formatType: String, playlistId: Int?, completion: @escaping (Bool) -> Void) {
+    struct YoutubeInfoResponse: Codable {
+        let status: String
+        let title: String
+        let is_playlist: Bool
+        let duration: Double
+        let entries_count: Int
+    }
+    
+    func fetchYoutubeInfo(url: String, completion: @escaping (YoutubeInfoResponse?) -> Void) {
+        guard let endpointUrl = URL(string: "\(baseURL)/youtube/info") else {
+            completion(nil)
+            return
+        }
+        
+        var request = URLRequest(url: endpointUrl)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = ["url": url]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            guard let data = data, error == nil else {
+                completion(nil)
+                return
+            }
+            do {
+                let info = try JSONDecoder().decode(YoutubeInfoResponse.self, from: data)
+                completion(info)
+            } catch {
+                completion(nil)
+            }
+        }.resume()
+    }
+
+    func downloadYoutube(url: String, audioOnly: Bool, formatType: String, quality: String, destinationDir: String?, playlistId: Int?, completion: @escaping (Bool) -> Void) {
         guard let endpointUrl = URL(string: "\(baseURL)/download") else { return }
         
         DispatchQueue.main.async {
@@ -411,8 +446,12 @@ class BackendClient: ObservableObject {
         var body: [String: Any] = [
             "url": url,
             "audio_only": audioOnly,
-            "format_type": formatType
+            "format_type": formatType,
+            "quality": quality
         ]
+        if let dest = destinationDir {
+            body["destination_dir"] = dest
+        }
         if let pid = playlistId {
             body["playlist_id"] = pid
         }

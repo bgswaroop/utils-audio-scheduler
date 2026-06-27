@@ -49,7 +49,12 @@ class DownloadRequest(BaseModel):
     url: str
     audio_only: bool = True
     format_type: str = "mp3"  # mp3, wav, mp4, m4a
+    quality: str = "medium"   # high, medium, low
+    destination_dir: str | None = None
     playlist_id: int | None = None
+
+class YoutubeInfoRequest(BaseModel):
+    url: str
 
 # --- Endpoints ---
 
@@ -271,31 +276,80 @@ def seek_playback(payload: SeekSet):
     playback_manager.seek(payload.progress)
     return {"status": "ok", "progress": payload.progress}
 
+@app.post("/youtube/info")
+def get_youtube_info(payload: YoutubeInfoRequest):
+    import yt_dlp
+    ydl_opts = {
+        'nocheckcertificate': True,
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': 'in_playlist',
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(payload.url, download=False)
+            is_playlist = "entries" in info if info else False
+            title = info.get("title", "Unknown Title") if info else "Unknown Title"
+            duration = info.get("duration", 0.0) if info and not is_playlist else 0.0
+            entries_count = len(info.get("entries", [])) if info and is_playlist else 0
+            
+            return {
+                "status": "success",
+                "title": title,
+                "is_playlist": is_playlist,
+                "duration": duration,
+                "entries_count": entries_count
+            }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch metadata: {str(e)}")
+
 @app.post("/download")
 def download_youtube(payload: DownloadRequest):
     import yt_dlp
-    output_dir = os.path.expanduser("~/Downloads/utils-audio-scheduler")
+    
+    # User choice of destination directory with fallback to default
+    output_dir = payload.destination_dir
+    if not output_dir:
+        output_dir = os.path.expanduser("~/Downloads/utils-audio-scheduler")
+    else:
+        output_dir = os.path.expanduser(output_dir)
+        
     os.makedirs(output_dir, exist_ok=True)
     
-    # Configure yt-dlp options
+    # Configure yt-dlp options with SSL bypass (nocheckcertificate)
     ydl_opts = {
         'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
+        'nocheckcertificate': True,
     }
     
+    # Map quality selections
     if payload.audio_only:
         ydl_opts['format'] = 'bestaudio/best'
+        bitrate = "192"
+        if payload.quality == "high":
+            bitrate = "320"
+        elif payload.quality == "low":
+            bitrate = "128"
+            
         postprocessors = []
         if payload.format_type in ["mp3", "m4a", "wav"]:
             postprocessors.append({
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': payload.format_type,
-                'preferredquality': '192',
+                'preferredquality': bitrate,
             })
             ydl_opts['postprocessors'] = postprocessors
     else:
-        ydl_opts['format'] = 'bestvideo+bestaudio/best'
+        # Map video qualities
+        if payload.quality == "high":
+            ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best'
+        elif payload.quality == "low":
+            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best'
+        else: # medium
+            ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best'
+            
         if payload.format_type == "mp4":
             ydl_opts['postprocessors'] = [{
                 'key': 'FFmpegVideoConvertor',
@@ -317,9 +371,10 @@ def download_youtube(payload: DownloadRequest):
                         actual_file = test_file
                         break
             
-            title = info.get("title", "YouTube Audio")
+            title = info.get("title", "YouTube Download")
             duration = info.get("duration", 0.0)
             
+            # If playlist_id was specified, auto-add to database playlist
             if payload.playlist_id is not None and os.path.exists(actual_file):
                 db.add_track(payload.playlist_id, actual_file, title, float(duration))
                 
@@ -331,6 +386,7 @@ def download_youtube(payload: DownloadRequest):
             }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
+
 
 # --- Service Startup ---
 if __name__ == "__main__":
