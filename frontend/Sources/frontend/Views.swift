@@ -1451,7 +1451,7 @@ struct SettingsView: View {
                         set: { val in
                             client.setDeviceVolume(deviceId: id, volume: val)
                         }
-                    ), in: 0.0...2.0)
+                    ), in: 0.0...10.0)
                     .labelsHidden()
                     .frame(width: 160)
                     

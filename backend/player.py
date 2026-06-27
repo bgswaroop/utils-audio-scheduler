@@ -77,8 +77,12 @@ class AudioPlayer:
                     chunk = self.data[self.current_frame:self.current_frame + frames]
                     self.current_frame += len(chunk)
                     
-                    # Apply volume and soft clip to prevent digital overflow/distortion
-                    weighted_chunk = np.clip(chunk * self.volume, -1.0, 1.0)
+                    # Smooth soft-limiting to prevent distortion even at 10x gain (1000% boost)
+                    # For self.volume > 1.0, we use np.tanh() to smoothly saturate the audio peaks analog-style.
+                    if self.volume > 1.0:
+                        weighted_chunk = np.tanh(chunk * self.volume)
+                    else:
+                        weighted_chunk = np.clip(chunk * self.volume, -1.0, 1.0)
                     
                     if len(chunk) < frames:
                         # End of file reached
@@ -128,8 +132,8 @@ class AudioPlayer:
 
     def set_volume(self, val: float):
         with self.lock:
-            # Allow up to 200% (2.0) volume to act as preamp boost for quiet/feeble speakers
-            self.volume = max(0.0, min(2.0, val))
+            # Allow up to 1000% (10.0) volume to act as preamp boost for quiet/feeble speakers
+            self.volume = max(0.0, min(10.0, val))
 
     def set_position(self, frame: int):
         with self.lock:
@@ -252,8 +256,8 @@ class PlaybackManager:
 
     def set_device_volume(self, device_id: int, volume: float):
         with self.lock:
-            # Allow up to 2.0 (200% boost) for quiet devices
-            volume = max(0.0, min(2.0, volume))
+            # Allow up to 10.0 (1000% boost) for quiet devices
+            volume = max(0.0, min(10.0, volume))
             self.active_devices[device_id] = volume
             if device_id in self.players:
                 self.players[device_id].set_volume(volume * self.master_volume)
