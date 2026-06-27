@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.virtualenvs/
+backend/venv/
+backend/build/
+backend/dist/
+backend/*.spec
+frontend/.build/
+*.app/
