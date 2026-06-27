@@ -8,14 +8,14 @@ The architectural diagram below illustrates the components and interaction flow:
 
 ```mermaid
 graph TD
-    subgraph SwiftUI App Bundle ("utils-audio-scheduler.app")
+    subgraph AppBundle ["SwiftUI App Bundle (utils-audio-scheduler.app)"]
         UI[SwiftUI Frontend Views]
         Client[BackendClient]
         Mgr[BackendManager Process Supervisor]
         SubProcess[Embedded Python Executable]
     end
     
-    subgraph Local System Services
+    subgraph LocalServices ["Local System Services"]
         DB[(SQLite File persistence)]
         CA[macOS CoreAudio Service]
         AudioOutput[Selected Output Routing]
