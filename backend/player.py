@@ -77,12 +77,8 @@ class AudioPlayer:
                     chunk = self.data[self.current_frame:self.current_frame + frames]
                     self.current_frame += len(chunk)
                     
-                    # Smooth soft-limiting to prevent distortion even at 10x gain (1000% boost)
-                    # For self.volume > 1.0, we use np.tanh() to smoothly saturate the audio peaks analog-style.
-                    if self.volume > 1.0:
-                        weighted_chunk = np.tanh(chunk * self.volume)
-                    else:
-                        weighted_chunk = np.clip(chunk * self.volume, -1.0, 1.0)
+                    # Simply multiply the raw samples by the requested gain and clip to valid audio range
+                    weighted_chunk = np.clip(chunk * self.volume, -1.0, 1.0)
                     
                     if len(chunk) < frames:
                         # End of file reached
