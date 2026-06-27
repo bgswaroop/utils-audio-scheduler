@@ -450,13 +450,7 @@ if __name__ == "__main__":
     # 1. Initialize DB tables
     db.init_db()
 
-    # 2. Restore user configurations from DB
-    saved_device = db.get_setting("selected_device_id")
-    if saved_device is not None:
-        try:
-            playback_manager.set_device_id(int(saved_device))
-        except ValueError:
-            pass
+    # 2. Restore user configurations from DB (Active devices are loaded in PlaybackManager init)
 
     saved_volume = db.get_setting("volume")
     if saved_volume is not None:
