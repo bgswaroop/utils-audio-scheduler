@@ -1,5 +1,6 @@
 .DS_Store
 .build/
+.context/
 .virtualenvs/
 backend/venv/
 backend/build/

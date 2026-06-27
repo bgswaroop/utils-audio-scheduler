@@ -56,6 +56,8 @@ class BackendClient: ObservableObject {
     @Published var selectedPlaylistTracks: [Track] = []
     @Published var schedules: [Schedule] = []
     @Published var status: PlaybackStatus?
+    @Published var isDownloading = false
+    @Published var downloadError: String? = nil
     
     private var cancellables = Set<AnyCancellable>()
     private var pollTimer: Timer?
@@ -174,6 +176,25 @@ class BackendClient: ObservableObject {
             if error == nil {
                 DispatchQueue.main.async {
                     self?.fetchPlaylists()
+                }
+            }
+        }.resume()
+    }
+    
+    func renamePlaylist(playlistId: Int, name: String, completion: @escaping () -> Void) {
+        guard let url = URL(string: "\(baseURL)/playlists/\(playlistId)") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = ["name": name]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { [weak self] _, _, error in
+            if error == nil {
+                DispatchQueue.main.async {
+                    self?.fetchPlaylists()
+                    completion()
                 }
             }
         }.resume()
@@ -373,5 +394,61 @@ class BackendClient: ObservableObject {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
         URLSession.shared.dataTask(with: request).resume()
+    }
+    
+    func downloadYoutube(url: String, audioOnly: Bool, formatType: String, playlistId: Int?, completion: @escaping (Bool) -> Void) {
+        guard let endpointUrl = URL(string: "\(baseURL)/download") else { return }
+        
+        DispatchQueue.main.async {
+            self.isDownloading = true
+            self.downloadError = nil
+        }
+        
+        var request = URLRequest(url: endpointUrl)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        var body: [String: Any] = [
+            "url": url,
+            "audio_only": audioOnly,
+            "format_type": formatType
+        ]
+        if let pid = playlistId {
+            body["playlist_id"] = pid
+        }
+        
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                self?.isDownloading = false
+            }
+            if let error = error {
+                DispatchQueue.main.async {
+                    self?.downloadError = error.localizedDescription
+                    completion(false)
+                }
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                var serverError = "Server returned error \(httpResponse.statusCode)"
+                if let data = data, let errMsg = String(data: data, encoding: .utf8) {
+                    serverError = errMsg
+                }
+                DispatchQueue.main.async {
+                    self?.downloadError = serverError
+                    completion(false)
+                }
+                return
+            }
+            
+            DispatchQueue.main.async {
+                if let pid = playlistId {
+                    self?.fetchTracks(playlistId: pid)
+                }
+                completion(true)
+            }
+        }.resume()
     }
 }

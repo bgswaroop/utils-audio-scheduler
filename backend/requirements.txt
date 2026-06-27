@@ -3,3 +3,4 @@ uvicorn[standard]
 sounddevice
 miniaudio
 numpy
+yt-dlp

@@ -111,6 +111,12 @@ def delete_playlist(playlist_id: int):
     conn.commit()
     conn.close()
 
+def rename_playlist(playlist_id: int, name: str):
+    conn = get_connection()
+    conn.execute("UPDATE playlists SET name = ? WHERE id = ?;", (name, playlist_id))
+    conn.commit()
+    conn.close()
+
 # Tracks
 def get_tracks(playlist_id: int):
     conn = get_connection()

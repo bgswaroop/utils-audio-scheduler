@@ -21,6 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         
+        // Setup gorgeous programmatic app icon
+        NSApp.applicationIconImage = createProgrammaticAppIcon()
+        
         // Start Python backend
         BackendManager.shared.start()
     }
@@ -32,6 +35,72 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
+    }
+    
+    private func createProgrammaticAppIcon() -> NSImage {
+        let size = NSSize(width: 512, height: 512)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        
+        // Draw rounded squircle
+        let rect = NSRect(origin: .zero, size: size).insetBy(dx: 20, dy: 20)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 110, yRadius: 110)
+        
+        // Create a beautiful vibrant magenta-purple gradient background
+        let gradient = NSGradient(starting: NSColor(calibratedRed: 0.95, green: 0.25, blue: 0.45, alpha: 1.0),
+                                  ending: NSColor(calibratedRed: 0.35, green: 0.15, blue: 0.85, alpha: 1.0))
+        gradient?.draw(in: path, angle: 45)
+        
+        // Draw subtle glass inner glow
+        path.lineWidth = 12
+        NSColor.white.withAlphaComponent(0.25).setStroke()
+        path.stroke()
+        
+        // Draw elegant overlapping musical note + clock hands
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        
+        // 1. Clock Circle / Dial
+        let clockRect = rect.insetBy(dx: 110, dy: 110)
+        let clockPath = NSBezierPath(ovalIn: clockRect)
+        clockPath.lineWidth = 14
+        NSColor.white.withAlphaComponent(0.5).setStroke()
+        clockPath.stroke()
+        
+        // Clock Hands
+        let handsPath = NSBezierPath()
+        handsPath.move(to: center)
+        handsPath.line(to: NSPoint(x: center.x, y: center.y + 90)) // Minute Hand
+        handsPath.move(to: center)
+        handsPath.line(to: NSPoint(x: center.x + 60, y: center.y - 20)) // Hour Hand
+        handsPath.lineWidth = 16
+        handsPath.lineCapStyle = .round
+        NSColor.white.withAlphaComponent(0.85).setStroke()
+        handsPath.stroke()
+        
+        // 2. Beautiful overlapping music note
+        let notePath = NSBezierPath()
+        // Left note head
+        notePath.appendOval(in: NSRect(x: center.x - 70, y: center.y - 80, width: 45, height: 35))
+        // Left stem
+        notePath.move(to: NSPoint(x: center.x - 25, y: center.y - 65))
+        notePath.line(to: NSPoint(x: center.x - 25, y: center.y + 70))
+        // Right note head
+        notePath.appendOval(in: NSRect(x: center.x + 15, y: center.y - 50, width: 45, height: 35))
+        // Right stem
+        notePath.move(to: NSPoint(x: center.x + 60, y: center.y - 35))
+        notePath.line(to: NSPoint(x: center.x + 60, y: center.y + 100))
+        // Beam
+        notePath.move(to: NSPoint(x: center.x - 25, y: center.y + 60))
+        notePath.line(to: NSPoint(x: center.x + 60, y: center.y + 90))
+        notePath.line(to: NSPoint(x: center.x + 60, y: center.y + 115))
+        notePath.line(to: NSPoint(x: center.x - 25, y: center.y + 85))
+        notePath.close()
+        
+        NSColor.white.setFill()
+        notePath.fill()
+        
+        image.unlockFocus()
+        return image
     }
 }
 

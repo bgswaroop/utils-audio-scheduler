@@ -45,6 +45,12 @@ class DeviceSet(BaseModel):
 class SeekSet(BaseModel):
     progress: float
 
+class DownloadRequest(BaseModel):
+    url: str
+    audio_only: bool = True
+    format_type: str = "mp3"  # mp3, wav, mp4, m4a
+    playlist_id: int | None = None
+
 # --- Endpoints ---
 
 # 1. Devices Settings
@@ -108,6 +114,14 @@ def delete_playlist(playlist_id: int):
         playback_manager.stop()
     db.delete_playlist(playlist_id)
     return {"status": "ok"}
+
+@app.put("/playlists/{playlist_id}")
+def rename_playlist(playlist_id: int, payload: PlaylistCreate):
+    try:
+        db.rename_playlist(playlist_id, payload.name)
+        return {"id": playlist_id, "name": payload.name}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Playlist rename failed: {e}")
 
 # 3. Tracks
 @app.get("/playlists/{playlist_id}/tracks")
@@ -256,6 +270,67 @@ def set_volume(payload: VolumeSet):
 def seek_playback(payload: SeekSet):
     playback_manager.seek(payload.progress)
     return {"status": "ok", "progress": payload.progress}
+
+@app.post("/download")
+def download_youtube(payload: DownloadRequest):
+    import yt_dlp
+    output_dir = os.path.expanduser("~/Downloads/utils-audio-scheduler")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Configure yt-dlp options
+    ydl_opts = {
+        'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
+        'quiet': True,
+        'no_warnings': True,
+    }
+    
+    if payload.audio_only:
+        ydl_opts['format'] = 'bestaudio/best'
+        postprocessors = []
+        if payload.format_type in ["mp3", "m4a", "wav"]:
+            postprocessors.append({
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': payload.format_type,
+                'preferredquality': '192',
+            })
+            ydl_opts['postprocessors'] = postprocessors
+    else:
+        ydl_opts['format'] = 'bestvideo+bestaudio/best'
+        if payload.format_type == "mp4":
+            ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }]
+            
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(payload.url, download=True)
+            filename = ydl.prepare_filename(info)
+            
+            # Post-processor might alter final filename extension
+            base, _ = os.path.splitext(filename)
+            actual_file = f"{base}.{payload.format_type}" if payload.audio_only else filename
+            if not os.path.exists(actual_file):
+                for ext in ["mp3", "wav", "m4a", "mp4", "webm", "mkv"]:
+                    test_file = f"{base}.{ext}"
+                    if os.path.exists(test_file):
+                        actual_file = test_file
+                        break
+            
+            title = info.get("title", "YouTube Audio")
+            duration = info.get("duration", 0.0)
+            
+            if payload.playlist_id is not None and os.path.exists(actual_file):
+                db.add_track(payload.playlist_id, actual_file, title, float(duration))
+                
+            return {
+                "status": "success",
+                "file_path": actual_file,
+                "title": title,
+                "duration": duration
+            }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
 
 # --- Service Startup ---
 if __name__ == "__main__":

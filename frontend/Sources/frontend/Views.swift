@@ -3,14 +3,20 @@ import AppKit
 
 // MARK: - Visual Effect Blur Helper
 struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .sidebar
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+    
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.blendingMode = .behindWindow
+        view.blendingMode = blendingMode
         view.state = .active
-        view.material = .sidebar
+        view.material = material
         return view
     }
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
 }
 
 // MARK: - Time/Duration Helpers
@@ -52,28 +58,8 @@ struct MainView: View {
             
             // Main Panel View
             VStack(spacing: 0) {
-                // Header Connection Status Indicator
-                HStack {
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(client.isConnected ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
-                        Text(client.isConnected ? "Engine Connected" : "Engine Disconnected")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color(NSColor.windowBackgroundColor).opacity(0.6))
-                    .cornerRadius(12)
-                }
-                .padding(.top, 40) // Spacing below window buttons
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
-                
-                Divider()
-                    .opacity(0.3)
+                Spacer()
+                    .frame(height: 40) // Spacing below window buttons (traffic lights)
                 
                 // Active Panel Content
                 Group {
@@ -91,7 +77,7 @@ struct MainView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.bottom, 90) // Ensure content scrolls above the bottom playback bar
             }
-            .background(Color(NSColor.underPageBackgroundColor))
+            .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
             .frame(minWidth: 600, idealWidth: 800, maxWidth: .infinity)
             .layoutPriority(2)
         }
@@ -112,6 +98,7 @@ struct MainView: View {
 // MARK: - Sidebar View
 struct SidebarView: View {
     @Binding var selectedTab: String
+    @StateObject private var client = BackendClient.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -143,8 +130,20 @@ struct SidebarView: View {
             .padding(.horizontal, 12)
             
             Spacer()
+            
+            // Engine Connection Banner placed at the bottom of the sidebar
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(client.isConnected ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+                Text(client.isConnected ? "Engine Connected" : "Engine Disconnected")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
         }
-        .background(VisualEffectView())
+        .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
     }
 }
 
@@ -190,6 +189,10 @@ struct PlaylistsView: View {
     @State private var showingCreateSheet = false
     @State private var newPlaylistName = ""
     
+    @State private var showingRenameSheet = false
+    @State private var editingPlaylist: Playlist?
+    @State private var renamePlaylistName = ""
+    
     var body: some View {
         HSplitView {
             // Playlists List
@@ -218,6 +221,19 @@ struct PlaylistsView: View {
                         Text(playlist.name)
                             .font(.system(size: 13, weight: .medium))
                         Spacer()
+                        
+                        // Edit Playlist Action
+                        Button(action: {
+                            editingPlaylist = playlist
+                            renamePlaylistName = playlist.name
+                            showingRenameSheet = true
+                        }) {
+                            Image(systemName: "pencil")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 4)
+                        .help("Rename Playlist")
                         
                         // Delete Playlist Action
                         Button(action: {
@@ -289,6 +305,43 @@ struct PlaylistsView: View {
             .padding(24)
             .frame(width: 300)
         }
+        .sheet(isPresented: $showingRenameSheet) {
+            VStack(spacing: 20) {
+                Text("Rename Playlist")
+                    .font(.system(size: 16, weight: .bold))
+                
+                TextField("New Playlist Name", text: $renamePlaylistName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 240)
+                
+                HStack(spacing: 12) {
+                    Button("Cancel") {
+                        showingRenameSheet = false
+                        editingPlaylist = nil
+                        renamePlaylistName = ""
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button("Save") {
+                        if let playlist = editingPlaylist, !renamePlaylistName.trimmingCharacters(in: .whitespaces).isEmpty {
+                            client.renamePlaylist(playlistId: playlist.id, name: renamePlaylistName) {
+                                // If the current playlist was renamed, update selectedPlaylist
+                                if selectedPlaylist?.id == playlist.id {
+                                    selectedPlaylist = Playlist(id: playlist.id, name: renamePlaylistName)
+                                }
+                                renamePlaylistName = ""
+                                editingPlaylist = nil
+                                showingRenameSheet = false
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 300)
+        }
         .onAppear {
             client.fetchPlaylists()
         }
@@ -299,6 +352,11 @@ struct PlaylistsView: View {
 struct PlaylistDetailView: View {
     let playlist: Playlist
     @StateObject private var client = BackendClient.shared
+    
+    @State private var showingDownloadSheet = false
+    @State private var youtubeUrl = ""
+    @State private var audioOnly = true
+    @State private var formatType = "mp3"
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -346,6 +404,21 @@ struct PlaylistDetailView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "plus")
                                 Text("Add Music File")
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.primary.opacity(0.08))
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // YouTube Download Button
+                        Button(action: { showingDownloadSheet = true }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.down.to.line.compact")
+                                Text("Download YouTube")
                             }
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.primary)
@@ -448,6 +521,94 @@ struct PlaylistDetailView: View {
                 }
                 .listStyle(.plain)
             }
+        }
+        .sheet(isPresented: $showingDownloadSheet) {
+            VStack(spacing: 20) {
+                HStack {
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.red)
+                    Text("YouTube Downloader")
+                        .font(.system(size: 18, weight: .bold))
+                }
+                .padding(.top, 8)
+                
+                Text("Enter a YouTube video or playlist URL. The file will be downloaded, converted, and automatically added to this playlist!")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 320)
+                
+                TextField("YouTube URL", text: $youtubeUrl)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 340)
+                    .disabled(client.isDownloading)
+                
+                Picker("Media Mode", selection: $audioOnly) {
+                    Text("Audio Only").tag(true)
+                    Text("Video + Audio").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 340)
+                .disabled(client.isDownloading)
+                
+                Picker("Output Format", selection: $formatType) {
+                    if audioOnly {
+                        Text("MP3").tag("mp3")
+                        Text("M4A").tag("m4a")
+                        Text("WAV").tag("wav")
+                    } else {
+                        Text("MP4").tag("mp4")
+                    }
+                }
+                .frame(width: 340)
+                .disabled(client.isDownloading)
+                
+                if client.isDownloading {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Downloading and converting...")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                } else if let err = client.downloadError {
+                    Text(err)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 340)
+                }
+                
+                HStack(spacing: 12) {
+                    Button("Close") {
+                        showingDownloadSheet = false
+                        youtubeUrl = ""
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(client.isDownloading)
+                    
+                    Button("Download") {
+                        if !youtubeUrl.trimmingCharacters(in: .whitespaces).isEmpty {
+                            client.downloadYoutube(url: youtubeUrl, audioOnly: audioOnly, formatType: formatType, playlistId: playlist.id) { success in
+                                if success {
+                                    showingDownloadSheet = false
+                                    youtubeUrl = ""
+                                }
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(client.isDownloading || youtubeUrl.isEmpty)
+                }
+            }
+            .padding(24)
+            .frame(width: 380)
+        }
+        .onChange(of: audioOnly) { newVal in
+            formatType = newVal ? "mp3" : "mp4"
         }
         .onAppear {
             client.fetchTracks(playlistId: playlist.id)
