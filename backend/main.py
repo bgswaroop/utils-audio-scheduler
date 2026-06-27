@@ -3,6 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import argparse
+
+# Add common macOS Homebrew paths to PATH environment variable
+paths = os.environ.get("PATH", "").split(os.pathsep)
+for p in ["/opt/homebrew/bin", "/usr/local/bin"]:
+    if p not in paths:
+        paths.insert(0, p)
+os.environ["PATH"] = os.pathsep.join(paths)
 import miniaudio
 import sounddevice as sd
 
@@ -288,17 +295,44 @@ def get_youtube_info(payload: YoutubeInfoRequest):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(payload.url, download=False)
-            is_playlist = "entries" in info if info else False
-            title = info.get("title", "Unknown Title") if info else "Unknown Title"
-            duration = info.get("duration", 0.0) if info and not is_playlist else 0.0
-            entries_count = len(info.get("entries", [])) if info and is_playlist else 0
+            if not info:
+                raise HTTPException(status_code=400, detail="Could not extract info from URL")
+                
+            is_playlist = "entries" in info
+            title = info.get("title", "Unknown Title")
+            thumbnail = info.get("thumbnail", "")
+            uploader = info.get("uploader", "")
+            duration = info.get("duration", 0.0) if not is_playlist else 0.0
             
+            # Extract actual available resolutions (heights)
+            available_resolutions = []
+            if not is_playlist and "formats" in info:
+                for f in info["formats"]:
+                    h = f.get("height")
+                    if h and h not in available_resolutions and f.get("vcodec") != "none":
+                        available_resolutions.append(h)
+                available_resolutions.sort(reverse=True)
+            
+            # If it's a playlist, collect metadata of the first 8 items
+            entries = []
+            if is_playlist and "entries" in info:
+                for entry in info["entries"][:8]:
+                    if entry:
+                        entries.append({
+                            "title": entry.get("title", "Unknown Video"),
+                            "duration": entry.get("duration", 0.0),
+                            "uploader": entry.get("uploader", "")
+                        })
+                        
             return {
                 "status": "success",
                 "title": title,
                 "is_playlist": is_playlist,
+                "thumbnail": thumbnail,
+                "uploader": uploader,
                 "duration": duration,
-                "entries_count": entries_count
+                "available_resolutions": available_resolutions,
+                "playlist_entries": entries
             }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch metadata: {str(e)}")
@@ -342,13 +376,19 @@ def download_youtube(payload: DownloadRequest):
             })
             ydl_opts['postprocessors'] = postprocessors
     else:
-        # Map video qualities
+        # Map video qualities (support "high", "medium", "low" or explicit height string)
         if payload.quality == "high":
             ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best'
         elif payload.quality == "low":
             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best'
-        else: # medium
+        elif payload.quality == "medium":
             ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best'
+        else:
+            try:
+                height = int(payload.quality)
+                ydl_opts['format'] = f'bestvideo[height<={height}]+bestaudio/best'
+            except ValueError:
+                ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best'
             
         if payload.format_type == "mp4":
             ydl_opts['postprocessors'] = [{

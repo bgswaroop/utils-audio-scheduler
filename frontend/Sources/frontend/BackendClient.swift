@@ -396,12 +396,22 @@ class BackendClient: ObservableObject {
         URLSession.shared.dataTask(with: request).resume()
     }
     
+    struct PlaylistEntry: Codable, Identifiable {
+        var id: String { title + uploader }
+        let title: String
+        let duration: Double
+        let uploader: String
+    }
+
     struct YoutubeInfoResponse: Codable {
         let status: String
         let title: String
         let is_playlist: Bool
+        let thumbnail: String?
+        let uploader: String?
         let duration: Double
-        let entries_count: Int
+        let available_resolutions: [Int]?
+        let playlist_entries: [PlaylistEntry]?
     }
     
     func fetchYoutubeInfo(url: String, completion: @escaping (YoutubeInfoResponse?) -> Void) {

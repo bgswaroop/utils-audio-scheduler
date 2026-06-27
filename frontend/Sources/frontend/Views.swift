@@ -806,8 +806,15 @@ struct DownloaderView: View {
     @State private var downloadDirectory = (NSHomeDirectory() as NSString).appendingPathComponent("Downloads/utils-audio-scheduler")
     @State private var targetPlaylistId: Int = -1 // -1 means none
     
+    // Metadata State
     @State private var metadataTitle = ""
-    @State private var metadataDetails = ""
+    @State private var isPlaylist = false
+    @State private var thumbnailURL: String? = nil
+    @State private var uploaderName: String? = nil
+    @State private var durationSecs: Double = 0.0
+    @State private var availableResolutions: [Int]? = nil
+    @State private var playlistEntries: [BackendClient.PlaylistEntry]? = nil
+    
     @State private var isFetchingMetadata = false
     @State private var showSuccessBanner = false
     @State private var lastDownloadedTitle = ""
@@ -828,151 +835,230 @@ struct DownloaderView: View {
                 
                 // Form Card
                 VStack(alignment: .leading, spacing: 20) {
-                    // URL input & fetch button
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("YouTube URL")
+                    
+                    // Row 1: YouTube URL Input
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("YouTube URL:")
                             .font(.system(size: 13, weight: .semibold))
-                        HStack(spacing: 12) {
-                            TextField("Paste video or playlist URL...", text: $youtubeUrl)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 13))
-                                .disabled(client.isDownloading)
-                            
-                            Button(action: fetchMetadata) {
-                                HStack(spacing: 6) {
-                                    if isFetchingMetadata {
-                                        ProgressView().controlSize(.small)
-                                    } else {
-                                        Image(systemName: "magnifyingglass")
-                                    }
-                                    Text("Analyze")
+                            .foregroundColor(.secondary)
+                            .frame(width: 140, alignment: .trailing)
+                        
+                        TextField("Paste video or playlist URL...", text: $youtubeUrl)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 13))
+                            .disabled(client.isDownloading)
+                        
+                        Button(action: fetchMetadata) {
+                            HStack(spacing: 6) {
+                                if isFetchingMetadata {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Image(systemName: "magnifyingglass")
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.primary.opacity(0.08))
-                                .cornerRadius(6)
+                                Text("Analyze")
                             }
-                            .buttonStyle(.plain)
-                            .disabled(youtubeUrl.isEmpty || client.isDownloading || isFetchingMetadata)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.primary.opacity(0.08))
+                            .cornerRadius(6)
                         }
+                        .buttonStyle(.plain)
+                        .disabled(youtubeUrl.isEmpty || client.isDownloading || isFetchingMetadata)
                     }
                     
-                    // Metadata Info Card (if fetched successfully)
+                    // Live Metadata Rich Card Panel
                     if !metadataTitle.isEmpty {
-                        HStack(spacing: 12) {
-                            Image(systemName: "info.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.accentColor)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(metadataTitle)
-                                    .font(.system(size: 13, weight: .bold))
-                                    .lineLimit(1)
-                                Text(metadataDetails)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
+                        HStack(alignment: .top, spacing: 12) {
                             Spacer()
+                                .frame(width: 140) // Match label alignment
+                            
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(alignment: .top, spacing: 16) {
+                                    // Thumbnail
+                                    ThumbnailView(urlString: thumbnailURL)
+                                    
+                                    // Text Details
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(isPlaylist ? "PLAYLIST" : "SINGLE VIDEO")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(isPlaylist ? Color.blue : Color.red)
+                                            .cornerRadius(4)
+                                        
+                                        Text(metadataTitle)
+                                            .font(.system(size: 15, weight: .bold))
+                                            .lineLimit(2)
+                                        
+                                        if let author = uploaderName, !author.isEmpty {
+                                            Label(author, systemImage: "person.circle.fill")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        
+                                        if !isPlaylist {
+                                            Label(formatDuration(durationSecs), systemImage: "clock")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                
+                                // Scrollable Playlist items list if URL is playlist
+                                if isPlaylist, let tracks = playlistEntries, !tracks.isEmpty {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Included playlist items:")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundColor(.secondary)
+                                        
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            ForEach(tracks) { track in
+                                                PlaylistTrackRow(track: track)
+                                            }
+                                        }
+                                        .padding(8)
+                                        .background(Color.primary.opacity(0.04))
+                                        .cornerRadius(6)
+                                    }
+                                }
+                            }
+                            .padding(16)
+                            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                            .cornerRadius(12)
                         }
-                        .padding(12)
-                        .background(Color.accentColor.opacity(0.1))
-                        .cornerRadius(8)
                     }
                     
                     Divider().opacity(0.3)
                     
-                    // Format and Mode selectors
-                    HStack(spacing: 24) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Download Type")
-                                .font(.system(size: 13, weight: .semibold))
-                            Picker("", selection: $audioOnly) {
-                                Text("Audio Only").tag(true)
-                                Text("Video + Audio").tag(false)
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 200)
-                            .disabled(client.isDownloading)
-                        }
+                    // Row 2: Download Mode Selection
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Download Type:")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: 140, alignment: .trailing)
                         
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Format")
-                                .font(.system(size: 13, weight: .semibold))
-                            Picker("", selection: $formatType) {
-                                if audioOnly {
-                                    Text("MP3").tag("mp3")
-                                    Text("M4A").tag("m4a")
-                                    Text("WAV").tag("wav")
-                                } else {
-                                    Text("MP4").tag("mp4")
-                                }
-                            }
-                            .frame(width: 120)
-                            .disabled(client.isDownloading)
+                        Picker("", selection: $audioOnly) {
+                            Text("Audio Only").tag(true)
+                            Text("Video + Audio").tag(false)
                         }
+                        .pickerStyle(.segmented)
+                        .frame(width: 240)
+                        .disabled(client.isDownloading)
+                        Spacer()
                     }
                     
-                    // Quality Selector based on selection
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Download Quality")
+                    // Row 3: Format Selection
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Format:")
                             .font(.system(size: 13, weight: .semibold))
-                        Picker("", selection: $selectedQuality) {
+                            .foregroundColor(.secondary)
+                            .frame(width: 140, alignment: .trailing)
+                        
+                        Picker("", selection: $formatType) {
                             if audioOnly {
+                                Text("MP3").tag("mp3")
+                                Text("M4A").tag("m4a")
+                                Text("WAV").tag("wav")
+                            } else {
+                                Text("MP4").tag("mp4")
+                            }
+                        }
+                        .frame(width: 140)
+                        .disabled(client.isDownloading)
+                        Spacer()
+                    }
+                    
+                    // Row 4: Quality Picker (Dynamic Resolutions support)
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Download Quality:")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: 140, alignment: .trailing)
+                        
+                        if audioOnly {
+                            Picker("", selection: $selectedQuality) {
                                 Text("High (320 kbps)").tag("high")
                                 Text("Medium (192 kbps)").tag("medium")
                                 Text("Low (128 kbps)").tag("low")
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 320)
+                            .disabled(client.isDownloading)
+                        } else {
+                            if let resolutions = availableResolutions, !resolutions.isEmpty {
+                                Picker("", selection: $selectedQuality) {
+                                    ForEach(resolutions, id: \.self) { res in
+                                        Text(resolutionLabel(res)).tag(String(res))
+                                    }
+                                }
+                                .frame(width: 240)
+                                .disabled(client.isDownloading)
                             } else {
-                                Text("High (1080p)").tag("high")
-                                Text("Medium (720p)").tag("medium")
-                                Text("Low (480p)").tag("low")
+                                Picker("", selection: $selectedQuality) {
+                                    Text("High (1080p)").tag("high")
+                                    Text("Medium (720p)").tag("medium")
+                                    Text("Low (480p)").tag("low")
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 320)
+                                .disabled(client.isDownloading)
                             }
                         }
-                        .pickerStyle(.segmented)
-                        .frame(width: 344)
-                        .disabled(client.isDownloading)
+                        Spacer()
                     }
                     
                     Divider().opacity(0.3)
                     
-                    // Save Destination Path Picker
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Save To Local Directory")
+                    // Row 5: Save Location Directory Picker
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Save To Directory:")
                             .font(.system(size: 13, weight: .semibold))
-                        HStack(spacing: 12) {
-                            Text(downloadDirectory)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.primary.opacity(0.04))
-                                .cornerRadius(6)
-                            
-                            Button("Choose Location...") {
-                                selectDestinationDirectory()
-                            }
-                            .disabled(client.isDownloading)
+                            .foregroundColor(.secondary)
+                            .frame(width: 140, alignment: .trailing)
+                        
+                        Text(downloadDirectory)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.primary.opacity(0.04))
+                            .cornerRadius(6)
+                        
+                        Button("Choose Location...") {
+                            selectDestinationDirectory()
                         }
+                        .disabled(client.isDownloading)
                     }
                     
-                    // Import Options (optional addition to playlist)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Add to Playlist (Optional)")
+                    // Row 6: Playlist Inclusion (Optional)
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Add to Playlist:")
                             .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: 140, alignment: .trailing)
+                        
                         Picker("", selection: $targetPlaylistId) {
                             Text("No Playlist (Save to Folder Only)").tag(-1)
                             ForEach(client.playlists) { playlist in
                                 Text(playlist.name).tag(playlist.id as Int)
                             }
                         }
-                        .frame(width: 344)
+                        .frame(width: 240)
                         .disabled(client.isDownloading)
+                        Spacer()
                     }
                     
                     Divider().opacity(0.3)
                     
-                    // Actions (Download status and trigger)
+                    // Actions Panel: Progress status + Trigger button
                     HStack {
+                        Spacer()
+                            .frame(width: 140)
+                        
                         if client.isDownloading {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack(spacing: 8) {
@@ -980,7 +1066,7 @@ struct DownloaderView: View {
                                     Text("Downloading and processing YouTube media...")
                                         .font(.system(size: 12, weight: .medium))
                                 }
-                                Text("This may take a moment depending on length and network speed.")
+                                Text("This may take a moment depending on file size and speed.")
                                     .font(.system(size: 10))
                                     .foregroundColor(.secondary)
                             }
@@ -1029,6 +1115,27 @@ struct DownloaderView: View {
         }
         .onChange(of: audioOnly) { newVal in
             formatType = newVal ? "mp3" : "mp4"
+            if !newVal {
+                if let resolutions = availableResolutions, !resolutions.isEmpty {
+                    selectedQuality = String(resolutions.first!)
+                } else {
+                    selectedQuality = "medium"
+                }
+            } else {
+                selectedQuality = "medium"
+            }
+        }
+    }
+    
+    private func resolutionLabel(_ height: Int) -> String {
+        switch height {
+        case 2160: return "4K Ultra HD (2160p)"
+        case 1440: return "2K Quad HD (1440p)"
+        case 1080: return "Full HD (1080p)"
+        case 720: return "HD (720p)"
+        case 480: return "SD (480p)"
+        case 360: return "SD (360p)"
+        default: return "\(height)p"
         }
     }
     
@@ -1036,23 +1143,36 @@ struct DownloaderView: View {
         guard !youtubeUrl.isEmpty else { return }
         isFetchingMetadata = true
         metadataTitle = ""
-        metadataDetails = ""
+        uploaderName = ""
+        thumbnailURL = nil
+        availableResolutions = nil
+        playlistEntries = nil
         
         client.fetchYoutubeInfo(url: youtubeUrl) { info in
             DispatchQueue.main.async {
                 isFetchingMetadata = false
                 if let info = info {
                     metadataTitle = info.title
-                    if info.is_playlist {
-                        metadataDetails = "Playlist containing \(info.entries_count) entries"
+                    isPlaylist = info.is_playlist
+                    uploaderName = info.uploader
+                    thumbnailURL = info.thumbnail
+                    durationSecs = info.duration
+                    availableResolutions = info.available_resolutions
+                    playlistEntries = info.playlist_entries
+                    
+                    // Autofill best available quality if video
+                    if !isPlaylist {
+                        if let resolutions = info.available_resolutions, !resolutions.isEmpty {
+                            selectedQuality = String(resolutions.first!)
+                        } else {
+                            selectedQuality = "medium"
+                        }
                     } else {
-                        let mins = Int(info.duration) / 60
-                        let secs = Int(info.duration) % 60
-                        metadataDetails = "Single Video • Duration \(mins)m \(secs)s"
+                        selectedQuality = "medium"
                     }
                 } else {
                     metadataTitle = "Format details fetched"
-                    metadataDetails = "Analysis done"
+                    isPlaylist = false
                 }
             }
         }
@@ -1092,9 +1212,68 @@ struct DownloaderView: View {
                 showSuccessBanner = true
                 youtubeUrl = ""
                 metadataTitle = ""
-                metadataDetails = ""
+                uploaderName = ""
+                thumbnailURL = nil
+                availableResolutions = nil
+                playlistEntries = nil
             }
         }
+    }
+}
+
+struct PlaylistTrackRow: View {
+    let track: BackendClient.PlaylistEntry
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "music.note")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+            Text(track.title)
+                .font(.system(size: 11))
+                .lineLimit(1)
+            Spacer()
+            if track.duration > 0 {
+                Text(formatDuration(track.duration))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 1)
+    }
+}
+
+struct ThumbnailView: View {
+    let urlString: String?
+    
+    var body: some View {
+        if let urlString = urlString, let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 140, height: 80)
+                        .cornerRadius(8)
+                        .clipped()
+                default:
+                    placeholder
+                }
+            }
+        } else {
+            placeholder
+        }
+    }
+    
+    private var placeholder: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.gray.opacity(0.2))
+            .frame(width: 140, height: 80)
+            .overlay(
+                Image(systemName: "video")
+                    .foregroundColor(.secondary)
+            )
     }
 }
 
