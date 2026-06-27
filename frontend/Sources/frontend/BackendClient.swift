@@ -1,5 +1,68 @@
 import Foundation
 import Combine
+import CoreAudio
+
+#if os(macOS)
+func maximizeHardwareVolume(deviceName: String) {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    
+    var size: UInt32 = 0
+    let systemObjectID = AudioObjectID(kAudioObjectSystemObject)
+    
+    let statusSize = AudioObjectGetPropertyDataSize(systemObjectID, &address, 0, nil, &size)
+    guard statusSize == noErr else { return }
+    
+    let deviceCount = Int(size) / MemoryLayout<AudioDeviceID>.size
+    var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+    
+    let statusDevices = AudioObjectGetPropertyData(systemObjectID, &address, 0, nil, &size, &deviceIDs)
+    guard statusDevices == noErr else { return }
+    
+    for deviceID in deviceIDs {
+        var nameAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var nameSize = UInt32(MemoryLayout<CFString?>.size)
+        var nameString: CFString? = nil
+        
+        let statusName = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameString)
+        if statusName == noErr, let devName = nameString as String? {
+            if devName.localizedCaseInsensitiveContains(deviceName) || deviceName.localizedCaseInsensitiveContains(devName) {
+                print("Setting native CoreAudio hardware volume of '\(devName)' to 1.0 (100%)")
+                
+                // Try setting volume on channel 0 (master) and channels 1 & 2 (left/right)
+                for channel in UInt32(0)...2 {
+                    var volAddress = AudioObjectPropertyAddress(
+                        mSelector: kAudioDevicePropertyVolumeScalar,
+                        mScope: kAudioDevicePropertyScopeOutput,
+                        mElement: channel
+                    )
+                    
+                    var hasProperty = AudioObjectHasProperty(deviceID, &volAddress)
+                    if hasProperty {
+                        var vol: Float = 1.0 // Force macOS device-level volume to 100%
+                        AudioObjectSetPropertyData(
+                            deviceID,
+                            &volAddress,
+                            0,
+                            nil,
+                            UInt32(MemoryLayout<Float>.size),
+                            &vol
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
 
 struct AudioDevice: Codable, Identifiable, Hashable {
     let id: Int
@@ -149,6 +212,17 @@ class BackendClient: ObservableObject {
             if error == nil {
                 DispatchQueue.main.async {
                     self?.fetchStatus()
+                    
+                    #if os(macOS)
+                    if let devicesList = self?.devices {
+                        for id in deviceIds {
+                            if id == -1 { continue } // Skip default system, only target external devices like Echo-549
+                            if let dev = devicesList.first(where: { $0.id == id }) {
+                                maximizeHardwareVolume(deviceName: dev.name)
+                            }
+                        }
+                    }
+                    #endif
                 }
             }
         }.resume()
